@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flexao-Strong</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js" crossorigin="anonymous"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0a;color:#fff;font-family:system-ui,sans-serif;min-height:100vh;padding:16px;text-align:center}
+h1{color:#22ff77;font-size:28px;margin:8px 0}
+p.sub{color:#888;font-size:14px;margin-bottom:16px}
+.bot{display:block;width:100%;padding:14px;margin:8px 0;border:2px solid #22ff77;border-radius:12px;background:#111;color:#fff;font-size:16px;text-align:left}
+.bot b{color:#22ff77}.bot small{display:block;color:#999;margin-top:4px}
+.hide{display:none}
+video{width:100%;max-height:45vh;border-radius:12px;background:#000;transform:scaleX(-1);object-fit:cover}
+.row{display:flex;gap:12px;margin:12px 0}
+.box{flex:1;background:#111;border:2px solid #222;border-radius:12px;padding:12px}
+.box span{display:block;font-size:44px;font-weight:800}
+.me span{color:#22ff77}.them span{color:#ff4d4d}
+.box small{color:#999}
+#msg{font-size:20px;font-weight:700;min-height:30px;margin:8px 0}
+button.main{width:100%;padding:16px;border:0;border-radius:12px;background:#22ff77;color:#000;font-size:18px;font-weight:800;margin-top:8px}
+button.sec{width:100%;padding:12px;border:1px solid #444;border-radius:12px;background:none;color:#ccc;font-size:15px;margin-top:8px}
+</style>
+</head>
+<body>
+<h1>💪 flexao-Strong</h1>
+
+<div id="menu">
+  <p class="sub">Escolha o bot e tente superar o limite dele.</p>
+</div>
+
+<div id="game" class="hide">
+  <p class="sub" id="botName"></p>
+  <video id="cam" playsinline muted></video>
+  <div class="row">
+    <div class="box me"><small>VOCÊ</small><span id="me">0</span></div>
+    <div class="box them"><small id="botLabel">BOT</small><span id="bot">0</span></div>
+  </div>
+  <div id="msg"></div>
+  <button class="main" id="start">Permitir câmera e começar</button>
+  <button class="sec" id="back">Voltar</button>
+</div>
+
+<script>
+const BOTS=[
+  {nome:"Noob",     seg:4, max:10},
+  {nome:"Iniciante",seg:2, max:28},
+  {nome:"Pro",      seg:2, max:68},
+  {nome:"Hacker",   seg:2, max:121},
+  {nome:"Deus",     seg:1, max:189}
+];
+const $=id=>document.getElementById(id);
+let bot=null, me=0, botN=0, timer=null, running=false, fase="up", lastRep=0, pose=null, stream=null;
+
+// Menu
+BOTS.forEach(b=>{
+  const el=document.createElement("button");
+  el.className="bot";
+  el.innerHTML=`<b>${b.nome}</b><small>1 flexão a cada ${b.seg}s · aguenta até ${b.max}</small>`;
+  el.onclick=()=>abrir(b);
+  $("menu").appendChild(el);
+});
+
+function abrir(b){
+  bot=b; me=0; botN=0;
+  $("menu").classList.add("hide"); $("game").classList.remove("hide");
+  $("botName").textContent="Contra: "+b.nome;
+  $("botLabel").textContent=b.nome.toUpperCase();
+  $("me").textContent=0; $("bot").textContent=0; $("msg").textContent="";
+  $("start").classList.remove("hide");
+}
+
+$("back").onclick=()=>{ parar(); $("game").classList.add("hide"); $("menu").classList.remove("hide"); };
+
+// Câmera + detecção
+$("start").onclick=async()=>{
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:640,height:480},audio:false});
+  }catch(e){ $("msg").textContent="❌ Permissão da câmera negada."; return; }
+  const v=$("cam"); v.srcObject=stream; await v.play();
+  $("msg").textContent="Carregando detecção...";
+  if(!pose){
+    pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${f}`});
+    pose.setOptions({modelComplexity:0,smoothLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+    pose.onResults(onPose);
+  }
+  $("start").classList.add("hide");
+  contagem();
+};
+
+function contagem(){
+  let n=3; $("msg").textContent=n;
+  const c=setInterval(()=>{
+    n--;
+    if(n>0) $("msg").textContent=n;
+    else{ clearInterval(c); comecar(); }
+  },1000);
+}
+
+function comecar(){
+  me=0; botN=0; fase="up"; running=true; lastRep=Date.now();
+  $("msg").textContent="VAI! 🔥";
+  timer=setInterval(()=>{
+    if(!running) return;
+    if(botN<bot.max){ botN++; $("bot").textContent=botN; }
+    else if(botN===bot.max && !$("msg").dataset.tired){
+      $("msg").dataset.tired=1; $("msg").textContent=`${bot.nome} cansou! Passe de ${bot.max}!`;
+    }
+    if(Date.now()-lastRep>15000) fim(false);
+  },bot.seg*1000);
+  loop();
+}
+
+async function loop(){
+  if(!running) return;
+  try{ await pose.send({image:$("cam")}); }catch(e){}
+  requestAnimationFrame(loop);
+}
+
+function angulo(a,b,c){
+  const r=Math.atan2(c.y-b.y,c.x-b.x)-Math.atan2(a.y-b.y,a.x-b.x);
+  let d=Math.abs(r*180/Math.PI); return d>180?360-d:d;
+}
+
+function onPose(res){
+  if(!running||!res.poseLandmarks) return;
+  const L=res.poseLandmarks;
+  // pega o lado do corpo mais visível (esquerdo: 11,13,15 / direito: 12,14,16)
+  const vL=(L[11].visibility+L[13].visibility+L[15].visibility);
+  const vR=(L[12].visibility+L[14].visibility+L[16].visibility);
+  const [s,e,w]=vL>=vR?[L[11],L[13],L[15]]:[L[12],L[14],L[16]];
+  if(Math.min(s.visibility,e.visibility,w.visibility)<.4) return;
+  const ang=angulo(s,e,w);
+  if(ang<95 && fase==="up") fase="down";
+  if(ang>150 && fase==="down"){
+    fase="up"; me++; lastRep=Date.now();
+    $("me").textContent=me;
+    if(me>bot.max) fim(true);
+  }
+}
+
+function fim(ganhou){
+  running=false; clearInterval(timer); delete $("msg").dataset.tired;
+  $("msg").textContent=ganhou?`🏆 Você venceu o ${bot.nome}!`:`💀 ${bot.nome} te derrotou! Tente de novo.`;
+  $("start").textContent="Jogar de novo"; $("start").classList.remove("hide");
+}
+
+function parar(){
+  running=false; clearInterval(timer);
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  $("start").textContent="Permitir câmera e começar";
+}
+</script>
+</body>
+</html>
